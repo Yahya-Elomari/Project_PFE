@@ -83,8 +83,8 @@ class _TicketsListPageState extends State<TicketsListPage> {
         elevation: 0,
       ),
       body: isAdmin
-          ? MyTicketsList(status: _getSelectedStatus())
-          : Center(child: CircularProgressIndicator()),
+          ? MyTicketsListAdmin(status: _getSelectedStatus())
+          : MyTicketsListUser(),
       bottomNavigationBar: isAdmin
           ? BottomNavigationBar(
               currentIndex: _selectedIndex,
@@ -139,10 +139,10 @@ class _TicketsListPageState extends State<TicketsListPage> {
   }
 }
 
-class MyTicketsList extends StatelessWidget {
+class MyTicketsListAdmin extends StatelessWidget {
   final String status;
 
-  const MyTicketsList({Key? key, required this.status}) : super(key: key);
+  const MyTicketsListAdmin({Key? key, required this.status}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -155,56 +155,120 @@ class MyTicketsList extends StatelessWidget {
         if (snapshot.hasError) {
           return Center(child: Text('Error: ${snapshot.error}'));
         }
-        final isAdmin = snapshot.data!['isAdmin'];
         final filteredTickets = snapshot.data!['filteredTickets'];
+        final isAdmin = snapshot.data!['isAdmin'];
 
-        return Padding(
-          padding: const EdgeInsets.only(top: 20.0),
-          child: ListView.builder(
-            itemCount: filteredTickets.length,
-            itemBuilder: (context, index) {
-              final ticket =
-                  filteredTickets[index].data() as Map<String, dynamic>;
-              return MyListTile(
-                title: "Title : " + ticket['Title'],
-                subtitle: "Description : " +
-                    ticket['Description'] +
-                    "\nBy : " +
-                    ticket['UserEmail'],
-                trailing: "Status\n" + ticket['Status'],
-                onDismissed: (direction) {
-                  if (direction == DismissDirection.endToStart) {
-                    // Swipe to the right, delete ticket
-                    FirebaseFirestore.instance
-                        .collection('Tickets')
-                        .doc(filteredTickets[index].id)
-                        .delete();
-                  } else if (direction == DismissDirection.startToEnd) {
-                    // Swipe to the left, navigate to update page
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => UpdateTicketPage(
-                          ticketId: filteredTickets[index].id,
-                          currentTitle: ticket['Title'],
-                          currentPriority: ticket['Priority'],
-                          currentDescription: ticket['Description'],
-                          currentStatus: ticket['Status'],
-                          isAdmin: isAdmin,
-                        ),
-                      ),
-                    ).then((_) {
-                      // Refresh the ticket list when returning from the update page
-                      ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text("Ticket updated")));
-                    });
-                  }
-                },
-              );
-            },
-          ),
-        );
+        return MyTicketsListWidget(
+            filteredTickets: filteredTickets, isAdmin: isAdmin);
       },
+    );
+  }
+}
+
+class MyTicketsListUser extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Map<String, dynamic>>(
+      future: filterTicketsByStatus(''),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(child: Text('Error: ${snapshot.error}'));
+        }
+        final filteredTickets = snapshot.data!['filteredTickets'];
+        final isAdmin = snapshot.data!['isAdmin'];
+
+        return MyTicketsListWidget(
+            filteredTickets: filteredTickets, isAdmin: isAdmin);
+      },
+    );
+  }
+}
+
+class MyTicketsListWidget extends StatefulWidget {
+  final List<QueryDocumentSnapshot<Object?>> filteredTickets;
+  final bool isAdmin;
+
+  const MyTicketsListWidget(
+      {Key? key, required this.filteredTickets, required this.isAdmin})
+      : super(key: key);
+
+  @override
+  State<MyTicketsListWidget> createState() => _MyTicketsListWidgetState();
+}
+
+class _MyTicketsListWidgetState extends State<MyTicketsListWidget> {
+  List<QueryDocumentSnapshot<Object?>> tickets = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTickets();
+  }
+
+  Future<void> _loadTickets() async {
+    final snapshot = await filterTicketsByStatus('');
+    setState(() {
+      tickets = snapshot['filteredTickets'];
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 20.0),
+      child: ListView.builder(
+        itemCount: tickets.length,
+        itemBuilder: (context, index) {
+          final ticket = tickets[index].data() as Map<String, dynamic>;
+          return MyListTile(
+            title: "Title : " + ticket['Title'],
+            subtitle: "Description : " +
+                ticket['Description'] +
+                "\nBy : " +
+                ticket['UserEmail'],
+            trailing: "Status\n" + ticket['Status'],
+            onDismissed: (direction) {
+              if (direction == DismissDirection.endToStart) {
+                // Swipe to the right, delete ticket
+                FirebaseFirestore.instance
+                    .collection('Tickets')
+                    .doc(tickets[index].id)
+                    .delete();
+              } else if (direction == DismissDirection.startToEnd) {
+                // Swipe to the left, navigate to update page
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => UpdateTicketPage(
+                      ticketId: tickets[index].id,
+                      currentTitle: ticket['Title'],
+                      currentPriority: ticket['Priority'],
+                      currentDescription: ticket['Description'],
+                      currentStatus: ticket['Status'],
+                      isAdmin: widget.isAdmin,
+                    ),
+                  ),
+                ).then((result) {
+                  if (result != null && result == 'cancel') {
+                    // Reload tickets if update is canceled
+                    _loadTickets();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text("Update canceled")),
+                    );
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text("Ticket updated")),
+                    );
+                  }
+                });
+              }
+            },
+          );
+        },
+      ),
     );
   }
 }
@@ -227,8 +291,7 @@ Future<Map<String, dynamic>> filterTicketsByStatus(String status) async {
       filteredTickets = snapshot.docs
           .where((doc) =>
               (doc.data() as Map<String, dynamic>)['UserEmail'] ==
-                  currentUserEmail &&
-              (doc.data() as Map<String, dynamic>)['Status'] == status)
+              currentUserEmail)
           .toList();
     }
   }

@@ -161,7 +161,7 @@ class _UpdateTicketPageState extends State<UpdateTicketPage> {
                   ),
                   ElevatedButton(
                     onPressed: () {
-                      Navigator.pop(context);
+                      Navigator.pop(context, 'cancel');
                     },
                     child: Text(
                       'cancel',
