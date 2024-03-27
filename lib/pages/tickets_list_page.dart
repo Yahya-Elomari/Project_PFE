@@ -1,10 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:help_desk/components/my_list_tile.dart'; // Assuming MyListTile is used for displaying individual tickets
+import 'package:help_desk/components/my_list_tile.dart';
 import 'package:help_desk/database/firestore.dart';
 import 'package:help_desk/pages/create_ticket.dart';
-import 'package:help_desk/pages/update_ticket_page.dart'; // Assuming this page is used for updating tickets
+import 'package:help_desk/pages/update_ticket_page.dart';
 
 class TicketsListPage extends StatefulWidget {
   TicketsListPage({Key? key, required this.currentUser}) : super(key: key);
@@ -17,6 +19,34 @@ class TicketsListPage extends StatefulWidget {
 class _TicketsListPageState extends State<TicketsListPage> {
   int _selectedIndex = 0;
   bool isAdmin = false;
+  List<QueryDocumentSnapshot<Object?>> tickets = [];
+  late StreamSubscription<QuerySnapshot> _streamSubscription;
+
+  Future<Map<String, dynamic>> filterTicketsByStatus(String status) async {
+    final currentUserEmail = FirebaseAuth.instance.currentUser?.email;
+    bool isAdmin = false;
+    List<QueryDocumentSnapshot<Object?>> filteredTickets = [];
+    FirestoreDatabase database = FirestoreDatabase();
+
+    if (currentUserEmail != null) {
+      isAdmin = await database.isAdmin();
+      final snapshot = await database.getTicketsStream().first;
+      if (isAdmin) {
+        filteredTickets = snapshot.docs
+            .where((doc) =>
+                (doc.data() as Map<String, dynamic>)['Status'] == status)
+            .toList();
+      } else {
+        filteredTickets = snapshot.docs
+            .where((doc) =>
+                (doc.data() as Map<String, dynamic>)['UserEmail'] ==
+                currentUserEmail)
+            .toList();
+      }
+    }
+
+    return {'isAdmin': isAdmin, 'filteredTickets': filteredTickets};
+  }
 
   void checkUserRole() async {
     if (widget.currentUser != null) {
@@ -30,7 +60,19 @@ class _TicketsListPageState extends State<TicketsListPage> {
   @override
   void initState() {
     super.initState();
+
     checkUserRole();
+    _streamSubscription =
+        FirestoreDatabase().getTicketsStream().listen((snapshot) {
+      _refreshTicketList();
+    });
+  }
+
+  @override
+  void dispose() {
+    // Cancel the stream subscription when the widget is disposed
+    _streamSubscription.cancel();
+    super.dispose();
   }
 
   void logout() {
@@ -83,8 +125,15 @@ class _TicketsListPageState extends State<TicketsListPage> {
         elevation: 0,
       ),
       body: isAdmin
-          ? MyTicketsListAdmin(status: _getSelectedStatus())
-          : MyTicketsListUser(),
+          ? MyTicketsListAdmin(
+              status: _getSelectedStatus(),
+              refreshTicketList: _refreshTicketList,
+              filterTicketsByStatus: filterTicketsByStatus,
+            )
+          : MyTicketsListUser(
+              filterTicketsByStatus: filterTicketsByStatus,
+              refreshTicketList: _refreshTicketList,
+            ),
       bottomNavigationBar: isAdmin
           ? BottomNavigationBar(
               currentIndex: _selectedIndex,
@@ -137,12 +186,30 @@ class _TicketsListPageState extends State<TicketsListPage> {
         return 'Not Started';
     }
   }
+
+  Future<void> _refreshTicketList() async {
+    // Fetch updated ticket data from Firestore
+    final data = await filterTicketsByStatus(
+        _getSelectedStatus()); // Assuming _getSelectedStatus() is available
+    if (mounted) {
+      setState(() {
+        tickets = data['filteredTickets'];
+      });
+    }
+  }
 }
 
 class MyTicketsListAdmin extends StatelessWidget {
   final String status;
+  final VoidCallback refreshTicketList;
+  final Function filterTicketsByStatus;
 
-  const MyTicketsListAdmin({Key? key, required this.status}) : super(key: key);
+  const MyTicketsListAdmin({
+    Key? key,
+    required this.status,
+    required this.refreshTicketList,
+    required this.filterTicketsByStatus,
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -159,13 +226,25 @@ class MyTicketsListAdmin extends StatelessWidget {
         final isAdmin = snapshot.data!['isAdmin'];
 
         return MyTicketsListWidget(
-            filteredTickets: filteredTickets, isAdmin: isAdmin);
+          filteredTickets: filteredTickets,
+          isAdmin: isAdmin,
+          refreshTicketList: refreshTicketList,
+        );
       },
     );
   }
 }
 
 class MyTicketsListUser extends StatelessWidget {
+  final Function filterTicketsByStatus; // Accept filterTicketsByStatus method
+  final VoidCallback refreshTicketList; // Callback to refresh ticket list
+
+  const MyTicketsListUser({
+    Key? key,
+    required this.filterTicketsByStatus,
+    required this.refreshTicketList,
+  }) : super(key: key);
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<Map<String, dynamic>>(
@@ -181,7 +260,10 @@ class MyTicketsListUser extends StatelessWidget {
         final isAdmin = snapshot.data!['isAdmin'];
 
         return MyTicketsListWidget(
-            filteredTickets: filteredTickets, isAdmin: isAdmin);
+          filteredTickets: filteredTickets,
+          isAdmin: isAdmin,
+          refreshTicketList: refreshTicketList,
+        );
       },
     );
   }
@@ -190,29 +272,26 @@ class MyTicketsListUser extends StatelessWidget {
 class MyTicketsListWidget extends StatefulWidget {
   final List<QueryDocumentSnapshot<Object?>> filteredTickets;
   final bool isAdmin;
+  final VoidCallback refreshTicketList; // Callback to refresh ticket list
 
-  const MyTicketsListWidget(
-      {Key? key, required this.filteredTickets, required this.isAdmin})
-      : super(key: key);
+  const MyTicketsListWidget({
+    Key? key,
+    required this.filteredTickets,
+    required this.isAdmin,
+    required this.refreshTicketList,
+  }) : super(key: key);
 
   @override
   State<MyTicketsListWidget> createState() => _MyTicketsListWidgetState();
 }
 
 class _MyTicketsListWidgetState extends State<MyTicketsListWidget> {
-  List<QueryDocumentSnapshot<Object?>> tickets = [];
+  late List<QueryDocumentSnapshot<Object?>> tickets;
 
   @override
   void initState() {
     super.initState();
-    _loadTickets();
-  }
-
-  Future<void> _loadTickets() async {
-    final snapshot = await filterTicketsByStatus('');
-    setState(() {
-      tickets = snapshot['filteredTickets'];
-    });
+    tickets = widget.filteredTickets; // Initialize tickets with filteredTickets
   }
 
   @override
@@ -237,6 +316,9 @@ class _MyTicketsListWidgetState extends State<MyTicketsListWidget> {
                     .collection('Tickets')
                     .doc(tickets[index].id)
                     .delete();
+
+                // After deleting, refresh the ticket list
+                widget.refreshTicketList();
               } else if (direction == DismissDirection.startToEnd) {
                 // Swipe to the left, navigate to update page
                 Navigator.push(
@@ -253,8 +335,8 @@ class _MyTicketsListWidgetState extends State<MyTicketsListWidget> {
                   ),
                 ).then((result) {
                   if (result != null && result == 'cancel') {
-                    // Reload tickets if update is canceled
-                    _loadTickets();
+                    // If update is canceled, refresh the ticket list
+                    widget.refreshTicketList();
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text("Update canceled")),
                     );
@@ -271,30 +353,4 @@ class _MyTicketsListWidgetState extends State<MyTicketsListWidget> {
       ),
     );
   }
-}
-
-Future<Map<String, dynamic>> filterTicketsByStatus(String status) async {
-  final currentUserEmail = FirebaseAuth.instance.currentUser?.email;
-  bool isAdmin = false;
-  List<QueryDocumentSnapshot<Object?>> filteredTickets = [];
-  FirestoreDatabase database = FirestoreDatabase();
-
-  if (currentUserEmail != null) {
-    isAdmin = await database.isAdmin();
-    final snapshot = await database.getTicketsStream().first;
-    if (isAdmin) {
-      filteredTickets = snapshot.docs
-          .where(
-              (doc) => (doc.data() as Map<String, dynamic>)['Status'] == status)
-          .toList();
-    } else {
-      filteredTickets = snapshot.docs
-          .where((doc) =>
-              (doc.data() as Map<String, dynamic>)['UserEmail'] ==
-              currentUserEmail)
-          .toList();
-    }
-  }
-
-  return {'isAdmin': isAdmin, 'filteredTickets': filteredTickets};
 }

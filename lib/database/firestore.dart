@@ -77,6 +77,33 @@ class FirestoreDatabase {
     }
   }
 
+  Future<bool> isTech() async {
+    try {
+      // get the current user data from firebase
+      User? currentUser = FirebaseAuth.instance.currentUser;
+
+      if (currentUser != null) {
+        DocumentSnapshot userSnapshot = await FirebaseFirestore.instance
+            .collection('Users')
+            .doc(currentUser.email)
+            .get();
+        if (userSnapshot.exists && userSnapshot.data() != null) {
+          // get data from the user document
+          String? userRole = userSnapshot.get('role');
+          // check if the user has the admin role
+          if (userRole == 'tech') {
+            return true;
+          }
+        }
+      }
+      // error if not logged in or there is the user doesn't have an admin role
+      return false;
+    } catch (e) {
+      print('Error checking tech role: $e');
+      return false;
+    }
+  }
+
   Future<void> updateTicket(
     String ticketId,
     String title,

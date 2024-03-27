@@ -17,7 +17,7 @@ class _CreateTicketState extends State<CreateTicketPage> {
   String _status = 'Not Started';
   String _description = '';
 
-  void _createTicket(BuildContext context) {
+  Future<void> _createTicket(BuildContext context) async {
     if (_formKey.currentState!.validate()) {
       //saving data
       _formKey.currentState!.save();
