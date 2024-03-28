@@ -137,9 +137,9 @@ class _TicketsListPageState extends State<TicketsListPage> {
       bottomNavigationBar: isAdmin
           ? BottomNavigationBar(
               currentIndex: _selectedIndex,
-              backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+              backgroundColor: Theme.of(context).colorScheme.secondary,
               selectedItemColor: Colors.white,
-              unselectedItemColor: Colors.grey,
+              unselectedItemColor: Theme.of(context).colorScheme.inversePrimary,
               onTap: (index) {
                 setState(() {
                   _selectedIndex = index;
@@ -165,10 +165,6 @@ class _TicketsListPageState extends State<TicketsListPage> {
                   label: 'Completed',
                 ),
               ],
-              selectedLabelStyle:
-                  TextStyle(color: Theme.of(context).colorScheme.primary),
-              unselectedLabelStyle: TextStyle(
-                  color: Theme.of(context).colorScheme.inversePrimary),
             )
           : null,
     );

@@ -155,7 +155,7 @@ class _UpdateTicketPageState extends State<UpdateTicketPage> {
                       'Update Ticket',
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.onPrimary,
+                        color: Theme.of(context).colorScheme.inversePrimary,
                       ),
                     ),
                   ),
@@ -167,7 +167,7 @@ class _UpdateTicketPageState extends State<UpdateTicketPage> {
                       'cancel',
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.onPrimary,
+                        color: Theme.of(context).colorScheme.inversePrimary,
                       ),
                     ),
                   ),
